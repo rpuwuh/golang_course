@@ -67,7 +67,7 @@ func main() {
 	if orderFail {
 		fmt.Println("порядок нарушен")
 	} else {
-		fmt.Println("порядок нарушен")
+		fmt.Println("порядок не нарушен")
 	}
 	if EvenFail {
 		fmt.Println("Есть не четные")
@@ -82,35 +82,55 @@ func main() {
 // пакет используется для проверки выполнения условия задачи, не удаляйте его
 
 func merge2Channels(fn func(int) int, in1 <-chan int, in2 <-chan int, out chan<- int, n int) {
-	var globalMutex sync.Mutex
-	for i := 0; i < n; i++ {
-		go func(i int) {
-			var was1stRead, was2ndRead, channelIsNotClosed bool
-			var x1, x2 int
-			{
-				globalMutex.Lock()
-				select {
-				case x1, channelIsNotClosed = <-in1:
-					was1stRead = true
-				case x2, channelIsNotClosed = <-in2:
-					was2ndRead = true
+	go func() {
+		var results []int = make([]int, n)
+		var mutexForResults []sync.Mutex = make([]sync.Mutex, n)
+		var mutexForInputCounter [2]sync.Mutex
+		var InputCounter [2]int
+
+		wg := new(sync.WaitGroup)
+		for i := 0; i < 2*n; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				//var channelIsNotClosed bool
+				var x int
+				{
+					select {
+					case x, _ = <-in1:
+						var index, value int
+						mutexForInputCounter[0].Lock()
+						index = InputCounter[0]
+						InputCounter[0]++
+						mutexForInputCounter[0].Unlock()
+
+						value = fn(x)
+
+						mutexForResults[index].Lock()
+						results[index] += value
+						mutexForResults[index].Unlock()
+						return
+					case x, _ = <-in2:
+						var index, value int
+						mutexForInputCounter[1].Lock()
+						index = InputCounter[1]
+						InputCounter[1]++
+						mutexForInputCounter[1].Unlock()
+
+						value = fn(x)
+
+						mutexForResults[index].Lock()
+						results[index] += value
+						mutexForResults[index].Unlock()
+						return
+					}
 				}
-			}
-			if was1stRead {
-				x2, channelIsNotClosed = <-in2
-				if was1stRead && channelIsNotClosed {
-					out <- (fn(x1) + fn(x2))
-				}
-				globalMutex.Unlock()
-				return
-			} else if was2ndRead {
-				x1, channelIsNotClosed = <-in1
-				if was2ndRead && channelIsNotClosed {
-					out <- (fn(x1) + fn(x2))
-				}
-				globalMutex.Unlock()
-				return
-			}
-		}(i)
-	}
+			}()
+		}
+		wg.Wait()
+		//time.Sleep(time.Duration(1 * time.Second))
+		for i := 0; i < n; i++ {
+			out <- results[i]
+		}
+	}()
 }
